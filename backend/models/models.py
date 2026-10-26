@@ -48,7 +48,6 @@ class Student(db.Model):
     department = db.Column(db.String(150))
     semester = db.Column(db.String(50))
     contact = db.Column(db.String(20))
-    status = db.Column(db.String(20), default='active', nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -64,7 +63,6 @@ class Examiner(db.Model):
     contact = db.Column(db.String(20))
     department = db.Column(db.String(150))
     designation = db.Column(db.String(100))
-    status = db.Column(db.String(20), default='active', nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
