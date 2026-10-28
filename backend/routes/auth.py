@@ -16,11 +16,11 @@ def get_datastore():
 def login():
     data = request.get_json(silent=True) or {}
 
-    email = data.get('email', '').strip().lower()
-    password = data.get('password', '')
-    requested_role = data.get('role', '').strip().lower()
+    email = str(data.get('email') or '').strip().lower()
+    password = data.get('password')
+    requested_role = str(data.get('role') or '').strip().lower()
 
-    if not email or not password:
+    if not email or not isinstance(password, str) or not password:
         return {
             'message': 'Email and password are required.'
         }, 400
@@ -33,10 +33,20 @@ def login():
     datastore = get_datastore()
     user = datastore.find_user(email=email)
 
-    if not user or not utils.verify_password(password, user.password):
+    if not user:
         return {
             'message': 'Invalid email or password.'
         }, 401
+
+    if not utils.verify_password(password, user.password):
+        # Upgrade accounts created before passwords were hashed on creation.
+        if 'admin' not in [role.name for role in user.roles] or user.password != password:
+            return {
+                'message': 'Invalid email or password.'
+            }, 401
+
+        user.password = utils.hash_password(password)
+        db.session.commit()
 
     if not user.active:
         return {
@@ -69,12 +79,12 @@ def login():
 def register_student():
     data = request.get_json(silent=True) or {}
 
-    fullname = data.get('fullname', '').strip()
-    email = data.get('email', '').strip().lower()
-    password = data.get('password', '')
-    registration_number = data.get('registration_number')
+    fullname = str(data.get('fullname') or '').strip()
+    email = str(data.get('email') or '').strip().lower()
+    password = data.get('password')
+    registration_number = str(data.get('registration_number') or '').strip() or None
 
-    if not fullname or not email or not password:
+    if not fullname or not email or not isinstance(password, str) or not password:
         return {
             'message': 'Full name, email and password are required.'
         }, 400
@@ -110,7 +120,7 @@ def register_student():
 
     user = datastore.create_user(
         email=email,
-        password=password,
+        password=utils.hash_password(password),
         roles=[student_role]
     )
 
@@ -120,9 +130,9 @@ def register_student():
         user_id=user.id,
         fullname=fullname,
         registration_number=registration_number,
-        department=data.get('department'),
-        semester=data.get('semester'),
-        contact=data.get('contact')
+        department=str(data.get('department') or '').strip() or None,
+        semester=str(data.get('semester') or '').strip() or None,
+        contact=str(data.get('contact') or '').strip() or None
     )
 
     db.session.add(student)

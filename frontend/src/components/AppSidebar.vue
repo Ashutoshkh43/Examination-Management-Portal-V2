@@ -1,108 +1,123 @@
+
 <template>
-    <aside class="sidebar">
-        <div class="sidebar-brand">
-            <div class="brand-icon small-brand">E</div>
+    <aside class="col-12 col-md-3 col-xl-2 bg-dark text-white p-3 d-flex flex-column min-vh-100">
 
-            <div>
-                <h5>EMP Portal</h5>
-                <small>Examination Management</small>
-            </div>
-        </div>
+         <h2 style="color: aquamarine;">{{ auth.role }}  </h2>
 
-        <div class="sidebar-user">
-            <div class="avatar">{{ userInitial }}</div>
-
-            <div>
-                <strong>{{ displayName }}</strong>
-                <small>{{ auth.role }}</small>
-            </div>
-        </div>
-
-        <nav class="sidebar-nav">
-            <p class="nav-heading">WORKSPACE</p>
-
-            <router-link
-                :to="`/${auth.role}/dashboard`"
-                class="sidebar-link"
-            >
-                <span>▦</span>
+        <!-- Admin menu -->
+        <nav v-if="auth.role === 'admin'" class="nav nav-pills flex-column gap-1">
+            <RouterLink class="nav-link text-white" to="/admin/dashboard">
                 Dashboard
-            </router-link>
+            </RouterLink>
+            <RouterLink class="nav-link text-white" to="/admin/examiners">
+                Examiners
+            </RouterLink>
+<!--             
+            <RouterLink class="nav-link text-white" to="/admin/courses">
+                Courses
+            </RouterLink>
 
-            <router-link
-                v-for="item in menuItems"
-                :key="item.path"
-                :to="`/${auth.role}/${item.path}`"
-                class="sidebar-link"
-            >
-                <span>{{ item.icon }}</span>
-                {{ item.label }}
-            </router-link>
+            <RouterLink class="nav-link text-white" to="/admin/examinations">
+                Examinations
+            </RouterLink>
+
+            <RouterLink class="nav-link text-white" to="/admin/rubrics">
+                Rubrics
+            </RouterLink>
+
+            
+
+            <RouterLink class="nav-link text-white" to="/admin/slots">
+                Slots
+            </RouterLink>
+
+            <RouterLink class="nav-link text-white" to="/admin/bookings">
+                Bookings
+            </RouterLink>
+
+            <RouterLink class="nav-link text-white" to="/admin/students">
+                Students
+            </RouterLink>
+
+            <RouterLink class="nav-link text-white" to="/admin/results">
+                Results
+            </RouterLink>
+
+            <RouterLink class="nav-link text-white" to="/admin/reports">
+                Reports
+            </RouterLink> -->
         </nav>
 
+        <!-- Examiner menu -->
+        <nav v-else-if="auth.role === 'examiner'" class="nav nav-pills flex-column gap-1">
+            <RouterLink class="nav-link text-white" to="/examiner/dashboard">
+                Dashboard
+            </RouterLink>
+
+            <RouterLink class="nav-link text-white" to="/examiner/examinations">
+                My Examinations
+            </RouterLink>
+
+            <RouterLink class="nav-link text-white" to="/examiner/slots">
+                Slots
+            </RouterLink>
+
+            <RouterLink class="nav-link text-white" to="/examiner/booked-students">
+                Booked Students
+            </RouterLink>
+
+            <RouterLink class="nav-link text-white" to="/examiner/profile">
+                Profile
+            </RouterLink>
+        </nav>
+
+        <!-- Student menu -->
+        <nav v-else-if="auth.role === 'student'" class="nav nav-pills flex-column gap-1">
+            <RouterLink class="nav-link text-white" to="/student/dashboard">
+                Dashboard
+            </RouterLink>
+
+            <RouterLink class="nav-link text-white" to="/student/examinations">
+                Available Examinations
+            </RouterLink>
+
+            <RouterLink class="nav-link text-white" to="/student/bookings">
+                My Bookings
+            </RouterLink>
+
+            <RouterLink class="nav-link text-white" to="/student/results">
+                Results
+            </RouterLink>
+
+            <RouterLink class="nav-link text-white" to="/student/profile">
+                Profile
+            </RouterLink>
+        </nav>
+
+        <!-- Logout at the bottom -->
         <button
-            class="sidebar-logout"
-            @click="handleLogout"
+            v-if="auth.isLoggedIn"
+            class="btn btn-link text-white text-decoration-none text-start mt-auto px-3"
+            type="button"
+            @click="logout"
         >
-            ↪ Sign Out
+            Logout
         </button>
+
     </aside>
 </template>
 
 <script setup>
-import { computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, RouterLink } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
 const router = useRouter()
 
-const menus = {
-    admin: [
-        { label: 'Courses', path: 'courses', icon: '▤' },
-        { label: 'Examinations', path: 'examinations', icon: '▣' },
-        { label: 'Rubrics', path: 'rubrics', icon: '☷' },
-        { label: 'Examiners', path: 'examiners', icon: '♙' },
-        { label: 'Slots', path: 'slots', icon: '◷' },
-        { label: 'Bookings', path: 'bookings', icon: '▧' },
-        { label: 'Students', path: 'students', icon: '♧' },
-        { label: 'Results', path: 'results', icon: '▥' },
-        { label: 'Reports', path: 'reports', icon: '▨' }
-    ],
-
-    examiner: [
-        { label: 'My Examinations', path: 'examinations', icon: '▣' },
-        { label: 'Slots', path: 'slots', icon: '◷' },
-        { label: 'Booked Students', path: 'bookings', icon: '♙' },
-        { label: 'Profile', path: 'profile', icon: '⚙' }
-    ],
-
-    student: [
-        { label: 'Available Examinations', path: 'examinations', icon: '▣' },
-        { label: 'My Bookings', path: 'bookings', icon: '▧' },
-        { label: 'Results', path: 'results', icon: '▥' },
-        { label: 'Profile', path: 'profile', icon: '⚙' }
-    ]
-}
-
-const menuItems = computed(() => {
-    return menus[auth.role] || menus.student
-})
-
-const displayName = computed(() => {
-    return auth.user?.fullname
-        || auth.user?.name
-        || auth.user?.email
-        || 'User'
-})
-
-const userInitial = computed(() => {
-    return displayName.value.charAt(0).toUpperCase()
-})
-
-function handleLogout() {
+function logout() {
     auth.logout().then(() => {
         router.push('/login')
     })
 }
+
 </script>

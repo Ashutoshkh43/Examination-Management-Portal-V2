@@ -1,49 +1,38 @@
+
 <template>
-    <header class="topbar">
-        <div>
-            <h5>{{ pageTitle }}</h5>
-            <p>Examination Management Portal</p>
+    <header class="d-flex justify-content-between align-items-center bg-black text-white px-3 py-2">
+        <div class="d-flex align-items-center gap-2">
+            <strong style="color: aquamarine;">EMP</strong>
+            <span style="color: aquamarine;">Examination Management Portal</span>
         </div>
 
-        <div class="topbar-user">
-            <div class="avatar">{{ userInitial }}</div>
+        <!-- Email and Logout button -->
+        <div v-if="auth.isLoggedIn" class="d-flex flex-column align-items-end">
+            <span style="color: aquamarine;">
+                {{ auth.user?.email }}
+            </span>
 
-            <div>
-                <strong>{{ displayName }}</strong>
-                <small>{{ auth.role }}</small>
-            </div>
+            <button
+                class="btn btn-outline-info btn-sm mt-1"
+                type="button"
+                @click="logout"
+            >
+                Logout
+            </button>
         </div>
     </header>
 </template>
 
 <script setup>
-import { computed } from 'vue'
-import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { useRouter } from 'vue-router'
 
 const auth = useAuthStore()
-const route = useRoute()
-const pageNames = {
-    courses: 'Courses',
-    examinations: 'Examinations',
-    rubrics: 'Rubrics',
-    examiners: 'Examiners',
-    slots: 'Examination Slots',
-    bookings: 'Bookings',
-    students: 'Students',
-    results: 'Results',
-    reports: 'Reports',
-    profile: 'My Profile'
+const router = useRouter()
+
+function logout() {
+    auth.logout().then(() => {
+        router.push('/login')
+    })
 }
-
-const pageTitle = computed(() => {
-    if (route.meta.title) {
-        return route.meta.title
-    }
-
-    const page = String(route.params.page || '')
-
-    return pageNames[page]
-        || page.replace(/-/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase())
-})
 </script>

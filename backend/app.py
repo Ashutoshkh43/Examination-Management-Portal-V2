@@ -1,5 +1,5 @@
 from flask import Flask
-from flask_security import Security, SQLAlchemyUserDatastore
+from flask_security import Security, SQLAlchemyUserDatastore, utils
 from flask_cors import CORS
 
 from config import Config
@@ -14,7 +14,10 @@ CORS(
     app,
     resources={
         r"/api/*": {
-            "origins": "http://localhost:5173",
+            "origins": [
+                "http://localhost:5173",
+                "http://127.0.0.1:5173"
+            ],
             "allow_headers": [
                 "Content-Type",
                 "Authentication-Token"
@@ -24,6 +27,7 @@ CORS(
                 "POST",
                 "PUT",
                 "DELETE",
+                "PATCH"
             ]
         }
     }
@@ -54,7 +58,7 @@ with app.app_context():
     if not admin:
         user_datastore.create_user(
             email=app.config['ADMIN_EMAIL'],
-            password=app.config['ADMIN_PASSWORD'],
+            password=utils.hash_password(app.config['ADMIN_PASSWORD']),
             roles=[admin_role]
         )
         print('Admin created successfully')

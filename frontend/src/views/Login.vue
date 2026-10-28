@@ -1,11 +1,12 @@
 
 <template>
+   
   <div
     class="container-fluid min-vh-100 d-flex align-items-center justify-content-center bg-light py-4"
   >
+ 
     <div
-      class="card border-0 shadow-lg rounded-4 w-100"
-      style="max-width: 430px"
+      class="card border-0 shadow-lg rounded-4 w-100 col-12 col-sm-10 col-md-8 col-lg-6 col-xl-5 col-xxl-4"
     >
       <div class="card-body p-4 p-md-5">
 

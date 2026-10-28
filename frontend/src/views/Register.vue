@@ -1,8 +1,8 @@
 <template>
-  <div class="auth-container">
-    <div class="card portal-card">
+  <div class="container-fluid min-vh-100 d-flex align-items-center justify-content-center bg-light py-4">
+    <div class="card border-0 shadow rounded-4 w-100 col-12 col-sm-10 col-lg-7 col-xl-6">
       <div class="card-body p-4">
-        <h2 class="portal-heading text-center">Student Registration</h2>
+        <h2 class="fw-bold text-center">Student Registration</h2>
         <p class="text-muted text-center mb-4">
           Create your student account
         </p>

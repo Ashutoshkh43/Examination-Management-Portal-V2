@@ -15,15 +15,15 @@ export const useAuthStore = defineStore('auth', {
 
     dashboardPath: (state) => {
       if (state.user?.role === 'admin') {
-        return '/admin-dashboard'
+        return '/admin/dashboard'
       }
 
       if (state.user?.role === 'examiner') {
-        return '/examiner-dashboard'
+        return '/examiner/dashboard'
       }
 
       if (state.user?.role === 'student') {
-        return '/student-dashboard'
+        return '/student/dashboard'
       }
 
       return '/login'

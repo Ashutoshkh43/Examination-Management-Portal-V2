@@ -63,8 +63,7 @@ class Examiner(db.Model):
     contact = db.Column(db.String(20))
     department = db.Column(db.String(150))
     designation = db.Column(db.String(100))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
 
     assignments = db.relationship('ExaminerAssignment', backref='examiner', lazy=True)
     slots = db.relationship('ExaminationSlot', backref='examiner', lazy=True)

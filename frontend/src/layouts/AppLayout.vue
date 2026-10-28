@@ -1,14 +1,21 @@
+
 <template>
-    <div class="portal-layout">
-        <AppSidebar />
+    <div class="container-fluid p-0 min-vh-100 bg-light">
 
-        <main class="portal-main">
-            <AppHeader />
+        <!-- Header across the full page -->
+        <AppHeader />
 
-            <section class="dashboard-content">
+        <!-- Sidebar and dashboard content below header -->
+        <div class="row g-0">
+
+            <AppSidebar />
+
+            <main class="col-12 col-md-9 col-xl-10 p-3 p-lg-4">
                 <router-view />
-            </section>
-        </main>
+            </main>
+
+        </div>
+
     </div>
 </template>
 
