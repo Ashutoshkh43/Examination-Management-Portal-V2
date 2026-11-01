@@ -459,7 +459,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { apiRequest } from '../services/api'
+import { apiRequest } from '../../services/api'
 
 const examiners = ref([])
 

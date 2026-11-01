@@ -120,7 +120,7 @@ def register_student():
 
     user = datastore.create_user(
         email=email,
-        password=utils.hash_password(password),
+        password=password,
         roles=[student_role]
     )
 
@@ -159,7 +159,7 @@ def get_current_user():
     return {
         'id': current_user.id,
         'email': current_user.email,
-        'roles': user_roles
+        'roles': [role.id for role in current_user.roles]
     }, 200
 
 

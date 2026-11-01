@@ -218,7 +218,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { apiRequest } from '../services/api'
+import { apiRequest } from '../../services/api'
 
 const dashboard = ref({})
 const recentActivities = ref([])

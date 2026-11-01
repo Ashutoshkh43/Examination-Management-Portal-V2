@@ -25,14 +25,25 @@ const routes = [
     children: [
       {
         path: 'dashboard',
-        component: () => import('../views/AdminDashboard.vue'),
+        component: () => import('../views/Admin/AdminDashboard.vue'),
         meta: { title: 'Admin Dashboard' }
       },
       {
         path: 'examiners',
-        component: () => import('../views/RegisterExaminer.vue'),
+        component: () => import('../views/Admin/RegisterExaminer.vue'),
         meta: { title: 'Examiner Management' }
       },
+      {
+        path: 'courses',
+        component: ()=> import('../views/Admin/Courses.vue')
+      },
+      {path:'students',
+        component:()=> import('../views/Admin/ManageStudents.vue')
+      },
+      {
+        path:'examinations',
+        component:()=>import('../views/Admin/ManageExaminations.vue')
+      }
       
     ]
   },

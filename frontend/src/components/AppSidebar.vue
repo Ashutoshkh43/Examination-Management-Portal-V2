@@ -12,14 +12,20 @@
             <RouterLink class="nav-link text-white" to="/admin/examiners">
                 Examiners
             </RouterLink>
-<!--             
+            
             <RouterLink class="nav-link text-white" to="/admin/courses">
                 Courses
             </RouterLink>
 
+            <RouterLink class="nav-link text-white" to="/admin/students">
+                Students
+            </RouterLink>
             <RouterLink class="nav-link text-white" to="/admin/examinations">
                 Examinations
             </RouterLink>
+
+<!-- 
+            
 
             <RouterLink class="nav-link text-white" to="/admin/rubrics">
                 Rubrics
@@ -35,9 +41,7 @@
                 Bookings
             </RouterLink>
 
-            <RouterLink class="nav-link text-white" to="/admin/students">
-                Students
-            </RouterLink>
+            
 
             <RouterLink class="nav-link text-white" to="/admin/results">
                 Results
