@@ -23,7 +23,9 @@
             <RouterLink class="nav-link text-white" to="/admin/examinations">
                 Examinations
             </RouterLink>
-
+            <RouterLink class="nav-link text-white" to="/admin/slots">
+                Slots
+            </RouterLink>
 <!-- 
             
 
@@ -33,9 +35,7 @@
 
             
 
-            <RouterLink class="nav-link text-white" to="/admin/slots">
-                Slots
-            </RouterLink>
+            
 
             <RouterLink class="nav-link text-white" to="/admin/bookings">
                 Bookings

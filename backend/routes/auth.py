@@ -159,7 +159,9 @@ def get_current_user():
     return {
         'id': current_user.id,
         'email': current_user.email,
-        'roles': [role.id for role in current_user.roles]
+        # The frontend stores and authorizes against role names (for example,
+        # "admin"), so the session endpoint must return the same values.
+        'roles': [role.name for role in current_user.roles]
     }, 200
 
 

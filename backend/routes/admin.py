@@ -10,6 +10,7 @@ from models.models import (
     Examination,
     Student,
     Examiner,
+    ExaminerAssignment,
     ExaminationSlot,
     Booking
 )
@@ -772,6 +773,16 @@ def get_examinations():
                 'course_name': exam.course.course_name,
                 'examination_name': exam.examination_name,
                 'examination_type': exam.examination_type,
+                'examiner_id': next(
+                    (assignment.examiner_id for assignment in exam.examiner_assignments
+                     if assignment.status == 'active'),
+                    None
+                ),
+                'examiner_name': next(
+                    (assignment.examiner.fullname for assignment in exam.examiner_assignments
+                     if assignment.status == 'active'),
+                    None
+                ),
                 'duration': exam.duration,
                 'maximum_marks': exam.maximum_marks,
                 'slot_creation_start': exam.slot_creation_start.isoformat(),
@@ -812,6 +823,7 @@ def create_examination():
     ).strip()
 
     course_id = data.get('course_id')
+    examiner_id = data.get('examiner_id')
     duration = data.get('duration')
     maximum_marks = data.get('maximum_marks')
 
@@ -826,6 +838,7 @@ def create_examination():
         not examination_name
         or not examination_type
         or course_id is None
+        or examiner_id is None
         or duration is None
         or maximum_marks is None
         or not all(required_dates)
@@ -840,6 +853,14 @@ def create_examination():
         return {
             'message': 'Selected course was not found.'
         }, 404
+
+    examiner = db.session.get(Examiner, examiner_id)
+
+    if not examiner:
+        return {'message': 'Selected examiner was not found.'}, 404
+
+    if examiner.user.status != 'active':
+        return {'message': 'Select an active examiner.'}, 400
 
     if course.status != 'active':
         return {
@@ -856,18 +877,22 @@ def create_examination():
             'message': 'Invalid examination type.'
         }, 400
 
-    duration = int(duration)
-    maximum_marks = float(maximum_marks)
+    try:
+        duration = int(duration)
+        maximum_marks = float(maximum_marks)
+        dates = [
+            datetime.fromisoformat(value)
+            for value in required_dates
+        ]
+    except (TypeError, ValueError):
+        return {
+            'message': 'Enter valid duration, marks, and date values.'
+        }, 400
 
     if duration <= 0 or maximum_marks <= 0:
         return {
             'message': 'Duration and maximum marks must be positive.'
         }, 400
-
-    dates = [
-        datetime.fromisoformat(value)
-        for value in required_dates
-    ]
 
     if dates[0] > dates[1] or dates[2] > dates[3]:
         return {
@@ -888,6 +913,12 @@ def create_examination():
     )
 
     db.session.add(examination)
+    db.session.flush()
+    db.session.add(ExaminerAssignment(
+        examination_id=examination.id,
+        examiner_id=examiner.id,
+        status='active'
+    ))
     db.session.commit()
 
     return {
@@ -926,6 +957,7 @@ def update_examination(examination_id):
     ).strip()
 
     course_id = data.get('course_id')
+    examiner_id = data.get('examiner_id')
     duration = data.get('duration')
     maximum_marks = data.get('maximum_marks')
     status = str(data.get('status') or '').strip()
@@ -949,6 +981,7 @@ def update_examination(examination_id):
         not examination_name
         or not examination_type
         or course_id is None
+        or examiner_id is None
         or duration is None
         or maximum_marks is None
         or not all(required_dates)
@@ -969,6 +1002,14 @@ def update_examination(examination_id):
             'message': 'Selected course was not found.'
         }, 404
 
+    examiner = db.session.get(Examiner, examiner_id)
+
+    if not examiner:
+        return {'message': 'Selected examiner was not found.'}, 404
+
+    if examiner.user.status != 'active':
+        return {'message': 'Select an active examiner.'}, 400
+
     if course.status != 'active':
         return {
             'message': 'Select an active course.'
@@ -984,18 +1025,22 @@ def update_examination(examination_id):
             'message': 'Invalid examination type.'
         }, 400
 
-    duration = int(duration)
-    maximum_marks = float(maximum_marks)
+    try:
+        duration = int(duration)
+        maximum_marks = float(maximum_marks)
+        dates = [
+            datetime.fromisoformat(value)
+            for value in required_dates
+        ]
+    except (TypeError, ValueError):
+        return {
+            'message': 'Enter valid duration, marks, and date values.'
+        }, 400
 
     if duration <= 0 or maximum_marks <= 0:
         return {
             'message': 'Duration and maximum marks must be positive.'
         }, 400
-
-    dates = [
-        datetime.fromisoformat(value)
-        for value in required_dates
-    ]
 
     if dates[0] > dates[1] or dates[2] > dates[3]:
         return {
@@ -1012,6 +1057,25 @@ def update_examination(examination_id):
     examination.slot_booking_start = dates[2]
     examination.slot_booking_end = dates[3]
     examination.status = status
+
+    ExaminerAssignment.query.filter_by(
+        examination_id=examination.id,
+        status='active'
+    ).update({'status': 'inactive'})
+
+    assignment = ExaminerAssignment.query.filter_by(
+        examination_id=examination.id,
+        examiner_id=examiner.id
+    ).first()
+
+    if assignment:
+        assignment.status = 'active'
+    else:
+        db.session.add(ExaminerAssignment(
+            examination_id=examination.id,
+            examiner_id=examiner.id,
+            status='active'
+        ))
 
     db.session.commit()
 
@@ -1071,4 +1135,305 @@ def delete_examination(examination_id):
 
     return {
         'message': 'Examination deleted successfully.'
+    }, 200
+
+
+# ==========================================
+# ALL EXAMINATION SLOTS
+# ==========================================
+
+
+def has_active_bookings(slot):
+    return Booking.query.filter(
+        Booking.slot_id == slot.id,
+        Booking.status != 'Cancelled'
+    ).first() is not None
+
+
+def has_examiner_slot_conflict(
+    examiner_id,
+    slot_date,
+    start_time,
+    end_time,
+    exclude_slot_id=None
+):
+    query = ExaminationSlot.query.filter(
+        ExaminationSlot.examiner_id == examiner_id,
+        ExaminationSlot.date == slot_date,
+        ExaminationSlot.status != 'Cancelled',
+        ExaminationSlot.start_time < end_time,
+        ExaminationSlot.end_time > start_time
+    )
+
+    if exclude_slot_id:
+        query = query.filter(
+            ExaminationSlot.id != exclude_slot_id
+        )
+
+    return query.first() is not None
+
+
+# ==========================================
+# GET ALL EXAMINATION SLOTS
+# ==========================================
+
+
+@admin_bp.route('/slots', methods=['GET'])
+@auth_required('token')
+@roles_required('admin')
+def get_all_slots():
+
+    slots = ExaminationSlot.query.order_by(
+        ExaminationSlot.date.desc(),
+        ExaminationSlot.start_time
+    ).all()
+
+    slot_list = []
+
+    for slot in slots:
+
+        examiner = slot.examiner
+
+        if slot.status != 'Cancelled' and slot.available_seats <= 0:
+            display_status = 'Full'
+        else:
+            display_status = slot.status
+
+        slot_list.append({
+
+            'id': slot.id,
+
+            'examination_id': slot.examination_id,
+            'examination_name': slot.examination.examination_name,
+            'course_code': slot.examination.course.course_code,
+
+            'examiner_id': slot.examiner_id,
+            'examiner_name': (
+                examiner.fullname if examiner else 'Not Assigned'
+            ),
+
+            'date': slot.date.isoformat(),
+
+            'start_time': slot.start_time.strftime('%H:%M'),
+            'end_time': slot.end_time.strftime('%H:%M'),
+
+            'capacity': slot.maximum_student_capacity,
+            'available_seats': slot.available_seats,
+
+            'status': display_status,
+
+            'meeting_link': slot.meeting_link
+
+        })
+
+    return {
+        'slots': slot_list
+    }, 200
+
+
+# ==========================================
+# GET ACTIVE EXAMINERS
+# ==========================================
+
+@admin_bp.route('/slot-examiners', methods=['GET'])
+@auth_required('token')
+@roles_required('admin')
+def get_slot_examiners():
+
+    examiners = Examiner.query.join(
+        User,
+        Examiner.user_id == User.id
+    ).filter(
+        User.status == 'active'
+    ).order_by(
+        Examiner.fullname
+    ).all()
+
+    return {
+        'examiners': [
+            {
+                'id': examiner.id,
+                'fullname': examiner.fullname,
+                'employee_id': examiner.employee_id
+            }
+            for examiner in examiners
+        ]
+    }, 200
+
+
+# ==========================================
+# RESCHEDULE EXAMINATION SLOT
+# ==========================================
+
+@admin_bp.route(
+    '/slots/<int:slot_id>/reschedule',
+    methods=['PATCH']
+)
+@auth_required('token')
+@roles_required('admin')
+def reschedule_slot(slot_id):
+
+    data = request.get_json(silent=True) or {}
+
+    slot = db.session.get(ExaminationSlot, slot_id)
+
+    if not slot:
+        return {'message': 'Examination slot not found.'}, 404
+
+    if slot.status == 'Cancelled':
+        return {'message': 'Cancelled slots cannot be rescheduled.'}, 400
+
+    if has_active_bookings(slot):
+        return {
+            'message': 'This slot has bookings. Rescheduling is not allowed.'
+        }, 400
+
+    date_value = data.get('date', '')
+    start_value = data.get('start_time', '')
+    end_value = data.get('end_time', '')
+
+    try:
+        new_date = date.fromisoformat(date_value)
+        new_start = time.fromisoformat(start_value)
+        new_end = time.fromisoformat(end_value)
+    except (ValueError, TypeError):
+        return {
+            'message': 'Enter a valid date and time.'
+        }, 400
+
+    if new_start >= new_end:
+        return {
+            'message': 'End time must be later than start time.'
+        }, 400
+
+    conflict = has_examiner_slot_conflict(
+        examiner_id=slot.examiner_id,
+        slot_date=new_date,
+        start_time=new_start,
+        end_time=new_end,
+        exclude_slot_id=slot.id
+    )
+
+    if conflict:
+        return {
+            'message': 'The examiner already has another slot during this time.'
+        }, 409
+
+    slot.date = new_date
+    slot.start_time = new_start
+    slot.end_time = new_end
+
+    db.session.commit()
+
+    return {
+        'message': 'Examination slot rescheduled successfully.'
+    }, 200
+
+
+# ==========================================
+# REASSIGN EXAMINER
+# ==========================================
+
+@admin_bp.route(
+    '/slots/<int:slot_id>/reassign',
+    methods=['PATCH']
+)
+@auth_required('token')
+@roles_required('admin')
+def reassign_slot(slot_id):
+
+    data = request.get_json(silent=True) or {}
+
+    slot = db.session.get(ExaminationSlot, slot_id)
+
+    if not slot:
+        return {'message': 'Examination slot not found.'}, 404
+
+    if slot.status == 'Cancelled':
+        return {'message': 'Cancelled slots cannot be reassigned.'}, 400
+
+    if has_active_bookings(slot):
+        return {
+            'message': 'This slot has bookings. Reassignment is not allowed.'
+        }, 400
+
+    examiner_id = data.get('examiner_id')
+
+    if not examiner_id:
+        return {
+            'message': 'Please select an examiner.'
+        }, 400
+
+    examiner = db.session.get(Examiner, examiner_id)
+
+    if not examiner:
+        return {'message': 'Examiner not found.'}, 404
+
+    if examiner.user.status != 'active':
+        return {'message': 'This examiner is inactive.'}, 400
+
+    assignment = ExaminerAssignment.query.filter_by(
+        examination_id=slot.examination_id,
+        examiner_id=examiner.id,
+        status='active'
+    ).first()
+
+    if not assignment:
+        return {
+            'message': 'This examiner is not assigned to the examination.'
+        }, 400
+
+    conflict = has_examiner_slot_conflict(
+        examiner_id=examiner.id,
+        slot_date=slot.date,
+        start_time=slot.start_time,
+        end_time=slot.end_time,
+        exclude_slot_id=slot.id
+    )
+
+    if conflict:
+        return {
+            'message': 'The selected examiner already has another slot during this time.'
+        }, 409
+
+    slot.examiner_id = examiner.id
+
+    db.session.commit()
+
+    return {
+        'message': 'Examiner reassigned successfully.'
+    }, 200
+
+
+# ==========================================
+# CANCEL EXAMINATION SLOT
+# ==========================================
+
+@admin_bp.route(
+    '/slots/<int:slot_id>/cancel',
+    methods=['PATCH']
+)
+@auth_required('token')
+@roles_required('admin')
+def cancel_slot(slot_id):
+
+    slot = db.session.get(ExaminationSlot, slot_id)
+
+    if not slot:
+        return {'message': 'Examination slot not found.'}, 404
+
+    if slot.status == 'Cancelled':
+        return {'message': 'This slot is already cancelled.'}, 400
+
+    if has_active_bookings(slot):
+        return {
+            'message': 'This slot has bookings. Cancel or move the bookings first.'
+        }, 400
+
+    slot.status = 'Cancelled'
+
+    db.session.commit()
+
+    return {
+        'message': 'Examination slot cancelled successfully.'
     }, 200

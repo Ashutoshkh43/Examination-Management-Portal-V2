@@ -43,6 +43,10 @@ const routes = [
       {
         path:'examinations',
         component:()=>import('../views/Admin/ManageExaminations.vue')
+      },
+      {
+        path:'slots',
+        component:()=>import('../views/Admin/AllExaminationSlot.vue')
       }
       
     ]
