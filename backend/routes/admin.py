@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date, time
 from flask import Blueprint, request, current_app
 from flask_security import auth_required, roles_required, utils
 
@@ -11,8 +11,11 @@ from models.models import (
     Student,
     Examiner,
     ExaminerAssignment,
+    ExaminationRubric,
+    RubricMark,
     ExaminationSlot,
-    Booking
+    Booking,
+    Evaluation
 )
 
 
@@ -32,6 +35,28 @@ def get_datastore():
 @roles_required('admin')
 def admin_dashboard():
 
+    examinations = Examination.query.order_by(Examination.created_at.desc()).all()
+    bookings = Booking.query.order_by(Booking.booking_date.desc()).all()
+    activities = [
+        {
+            'id': f'booking-{booking.id}',
+            'date': booking.booking_date.strftime('%Y-%m-%d %H:%M'),
+            'activity': f'{booking.status} booking for {booking.examination.examination_name}',
+            'performed_by': booking.student.fullname
+        }
+        for booking in bookings[:8]
+    ]
+    activities.extend([
+        {
+            'id': f'examination-{exam.id}',
+            'date': exam.created_at.strftime('%Y-%m-%d %H:%M'),
+            'activity': f'Created examination {exam.examination_name}',
+            'performed_by': 'Administrator'
+        }
+        for exam in examinations[:8]
+    ])
+    activities.sort(key=lambda item: item['date'], reverse=True)
+
     return {
         'role': 'admin',
 
@@ -47,11 +72,25 @@ def admin_dashboard():
 
         'total_bookings': Booking.query.count(),
 
-        'recent_activities': [],
+        'total_rubrics': ExaminationRubric.query.count(),
 
-        'examination_statuses': [],
+        'recent_activities': activities[:10],
 
-        'booking_statuses': []
+        'examination_statuses': [
+            {
+                'status': status,
+                'count': sum(exam.status == status for exam in examinations)
+            }
+            for status in dict.fromkeys(exam.status for exam in examinations)
+        ],
+
+        'booking_statuses': [
+            {
+                'status': status,
+                'count': sum(booking.status == status for booking in bookings)
+            }
+            for status in dict.fromkeys(booking.status for booking in bookings)
+        ]
     }, 200
 
 
@@ -87,7 +126,10 @@ def get_examiners():
 
                 'status': examiner.user.status,
 
-                'assigned_examinations': 0
+                'assigned_examinations': sum(
+                    assignment.status == 'active'
+                    for assignment in examiner.assignments
+                )
             }
             for examiner in examiners
         ]
@@ -168,11 +210,12 @@ def create_examiner():
         }, 500
 
     # Hash the password before saving it.
-    hashed_password =password
+    hashed_password = utils.hash_password(password)
 
     user = datastore.create_user(
         email=email,
         password=hashed_password,
+        status='pending',
         roles=[examiner_role]
     )
 
@@ -192,7 +235,7 @@ def create_examiner():
     db.session.commit()
 
     return {
-        'message': 'Examiner account created successfully.',
+        'message': 'Examiner account created and is pending approval.',
 
         'examiner': {
             'id': examiner.id,
@@ -345,7 +388,7 @@ def update_examiner_status(examiner_id):
 
     if status not in ['active', 'inactive']:
         return {
-            'message': 'Status must be active or inactive.'
+            'message': 'Approve or deactivate an examiner using active or inactive status.'
         }, 400
 
     examiner = db.session.get(
@@ -826,6 +869,15 @@ def create_examination():
     examiner_id = data.get('examiner_id')
     duration = data.get('duration')
     maximum_marks = data.get('maximum_marks')
+    status = str(data.get('status') or 'Draft').strip()
+
+    allowed_statuses = [
+        'Draft',
+        'Slot Creation',
+        'Booking Open',
+        'Closed',
+        'Completed'
+    ]
 
     required_dates = [
         data.get('slot_creation_start'),
@@ -899,6 +951,9 @@ def create_examination():
             'message': 'Start dates must be before end dates.'
         }, 400
 
+    if status not in allowed_statuses:
+        return {'message': 'Invalid examination status.'}, 400
+
     examination = Examination(
         course_id=course.id,
         examination_name=examination_name,
@@ -909,7 +964,7 @@ def create_examination():
         slot_creation_end=dates[1],
         slot_booking_start=dates[2],
         slot_booking_end=dates[3],
-        status='Draft'
+        status=status
     )
 
     db.session.add(examination)
@@ -1157,6 +1212,9 @@ def has_examiner_slot_conflict(
     end_time,
     exclude_slot_id=None
 ):
+    if examiner_id is None:
+        return False
+
     query = ExaminationSlot.query.filter(
         ExaminationSlot.examiner_id == examiner_id,
         ExaminationSlot.date == slot_date,
@@ -1220,15 +1278,101 @@ def get_all_slots():
             'capacity': slot.maximum_student_capacity,
             'available_seats': slot.available_seats,
 
+            'booked_count': Booking.query.filter(
+                Booking.slot_id == slot.id,
+                Booking.status != 'Cancelled'
+            ).count(),
+
             'status': display_status,
 
             'meeting_link': slot.meeting_link
 
         })
 
+    awaiting_examinations = Examination.query.order_by(
+        Examination.id.desc()
+    ).all()
+    awaiting_list = []
+    for examination in awaiting_examinations:
+        if examination.slots:
+            continue
+        assignment = ExaminerAssignment.query.filter_by(
+            examination_id=examination.id,
+            status='active'
+        ).first()
+        awaiting_list.append({
+            'id': examination.id,
+            'examination_name': examination.examination_name,
+            'course_code': examination.course.course_code,
+            'status': examination.status,
+            'examiner_id': assignment.examiner_id if assignment else None,
+            'examiner_name': assignment.examiner.fullname if assignment else 'Not Assigned'
+        })
+
     return {
-        'slots': slot_list
+        'slots': slot_list,
+        'awaiting_examinations': awaiting_list
     }, 200
+
+
+@admin_bp.route('/slots', methods=['POST'])
+@auth_required('token')
+@roles_required('admin')
+def create_admin_slot():
+    data = request.get_json(silent=True) or {}
+    try:
+        examination_id = int(data.get('examination_id'))
+        examiner_id = int(data.get('examiner_id'))
+        slot_date = date.fromisoformat(str(data.get('date') or ''))
+        start_time = time.fromisoformat(str(data.get('start_time') or ''))
+        end_time = time.fromisoformat(str(data.get('end_time') or ''))
+        capacity = int(data.get('capacity'))
+    except (TypeError, ValueError):
+        return {'message': 'Enter a valid examination, examiner, date, time, and capacity.'}, 400
+
+    if capacity < 1:
+        return {'message': 'Capacity must be greater than zero.'}, 400
+    if start_time >= end_time:
+        return {'message': 'End time must be later than start time.'}, 400
+
+    examination = db.session.get(Examination, examination_id)
+    if not examination:
+        return {'message': 'Examination not found.'}, 404
+    if examination.status != 'Slot Creation':
+        return {'message': 'Slots can only be added while the examination is in Slot Creation status.'}, 400
+
+    examiner = db.session.get(Examiner, examiner_id)
+    if not examiner or examiner.user.status != 'active':
+        return {'message': 'Select an active examiner.'}, 400
+    assignment = ExaminerAssignment.query.filter_by(
+        examination_id=examination.id,
+        examiner_id=examiner.id,
+        status='active'
+    ).first()
+    if not assignment:
+        return {'message': 'The examiner must be actively assigned to this examination.'}, 400
+
+    if has_examiner_slot_conflict(examiner.id, slot_date, start_time, end_time):
+        return {'message': 'The examiner already has a slot during this time.'}, 409
+
+    meeting_link = str(data.get('meeting_link') or '').strip()
+    if len(meeting_link) > 500:
+        return {'message': 'Meeting link must be 500 characters or fewer.'}, 400
+
+    slot = ExaminationSlot(
+        examination_id=examination.id,
+        examiner_id=examiner.id,
+        date=slot_date,
+        start_time=start_time,
+        end_time=end_time,
+        maximum_student_capacity=capacity,
+        available_seats=capacity,
+        meeting_link=meeting_link or None,
+        status='Available'
+    )
+    db.session.add(slot)
+    db.session.commit()
+    return {'message': 'Examination slot created successfully.', 'slot_id': slot.id}, 201
 
 
 # ==========================================
@@ -1240,14 +1384,28 @@ def get_all_slots():
 @roles_required('admin')
 def get_slot_examiners():
 
-    examiners = Examiner.query.join(
+    examination_id = request.args.get('examination_id', type=int)
+
+    examiner_query = Examiner.query.join(
         User,
         Examiner.user_id == User.id
     ).filter(
         User.status == 'active'
-    ).order_by(
-        Examiner.fullname
-    ).all()
+    )
+
+    if examination_id is not None:
+        examination = db.session.get(Examination, examination_id)
+        if not examination:
+            return {'message': 'Examination not found.'}, 404
+        examiner_query = examiner_query.join(
+            ExaminerAssignment,
+            ExaminerAssignment.examiner_id == Examiner.id
+        ).filter(
+            ExaminerAssignment.examination_id == examination_id,
+            ExaminerAssignment.status == 'active'
+        )
+
+    examiners = examiner_query.order_by(Examiner.fullname).all()
 
     return {
         'examiners': [
@@ -1258,6 +1416,385 @@ def get_slot_examiners():
             }
             for examiner in examiners
         ]
+    }, 200
+
+
+# ==========================================
+# ADMIN BOOKING MANAGEMENT
+# ==========================================
+
+@admin_bp.route('/bookings', methods=['GET'])
+@auth_required('token')
+@roles_required('admin')
+def get_all_bookings():
+    bookings = Booking.query.join(
+        ExaminationSlot, Booking.slot_id == ExaminationSlot.id
+    ).order_by(Booking.booking_date.desc()).all()
+
+    return {
+        'bookings': [{
+            'id': booking.id,
+            'student_id': booking.student_id,
+            'student_name': booking.student.fullname,
+            'registration_number': booking.student.registration_number,
+            'examination_id': booking.examination_id,
+            'examination_name': booking.examination.examination_name,
+            'course_code': booking.examination.course.course_code,
+            'slot_id': booking.slot_id,
+            'date': booking.slot.date.isoformat(),
+            'start_time': booking.slot.start_time.strftime('%H:%M'),
+            'end_time': booking.slot.end_time.strftime('%H:%M'),
+            'examiner_id': booking.slot.examiner_id,
+            'examiner_name': booking.slot.examiner.fullname if booking.slot.examiner else 'Not Assigned',
+            'status': booking.status,
+            'booking_date': booking.booking_date.isoformat(),
+            'cancellation_reason': booking.cancellation_reason
+        } for booking in bookings]
+    }, 200
+
+
+@admin_bp.route('/bookings/<int:booking_id>/reschedule', methods=['PATCH'])
+@auth_required('token')
+@roles_required('admin')
+def reschedule_booking(booking_id):
+    booking = db.session.get(Booking, booking_id)
+    if not booking:
+        return {'message': 'Booking not found.'}, 404
+    if booking.status != 'Booked':
+        return {'message': 'Only active bookings can be rescheduled.'}, 400
+
+    data = request.get_json(silent=True) or {}
+    try:
+        new_slot_id = int(data.get('slot_id'))
+    except (TypeError, ValueError):
+        return {'message': 'Select a valid slot.'}, 400
+
+    new_slot = db.session.get(ExaminationSlot, new_slot_id)
+    old_slot = booking.slot
+    if not new_slot or new_slot.examination_id != booking.examination_id:
+        return {'message': 'Choose a slot for the same examination.'}, 400
+    if new_slot.id == old_slot.id:
+        return {'message': 'Choose a different slot.'}, 400
+    if new_slot.status == 'Cancelled' or new_slot.available_seats < 1:
+        return {'message': 'The selected slot is not available.'}, 409
+
+    old_slot.available_seats = min(
+        old_slot.maximum_student_capacity, old_slot.available_seats + 1
+    )
+    if old_slot.status == 'Full':
+        old_slot.status = 'Available'
+    new_slot.available_seats -= 1
+    if new_slot.available_seats <= 0:
+        new_slot.status = 'Full'
+    booking.slot_id = new_slot.id
+    db.session.commit()
+    return {'message': 'Booking rescheduled successfully.'}, 200
+
+
+@admin_bp.route('/bookings/<int:booking_id>/reassign', methods=['PATCH'])
+@auth_required('token')
+@roles_required('admin')
+def reassign_booking_examiner(booking_id):
+    booking = db.session.get(Booking, booking_id)
+    if not booking:
+        return {'message': 'Booking not found.'}, 404
+    if booking.status != 'Booked':
+        return {'message': 'Only active bookings can be reassigned.'}, 400
+
+    data = request.get_json(silent=True) or {}
+    try:
+        examiner_id = int(data.get('examiner_id'))
+    except (TypeError, ValueError):
+        return {'message': 'Select a valid examiner.'}, 400
+
+    examiner = db.session.get(Examiner, examiner_id)
+    if not examiner or examiner.user.status != 'active':
+        return {'message': 'The selected examiner is not active.'}, 400
+    assignment = ExaminerAssignment.query.filter_by(
+        examination_id=booking.examination_id,
+        examiner_id=examiner.id,
+        status='active'
+    ).first()
+    if not assignment:
+        return {'message': 'The examiner is not assigned to this examination.'}, 400
+
+    slot = booking.slot
+    if has_examiner_slot_conflict(
+        examiner.id, slot.date, slot.start_time, slot.end_time,
+        exclude_slot_id=slot.id
+    ):
+        return {'message': 'The examiner already has a slot during this time.'}, 409
+
+    # Examiner assignment belongs to the slot in the current data model, so
+    # this updates the examiner shown for every booking in this slot.
+    slot.examiner_id = examiner.id
+    db.session.commit()
+    return {'message': 'Slot examiner reassigned successfully.'}, 200
+
+
+@admin_bp.route('/bookings/<int:booking_id>/cancel', methods=['PATCH'])
+@auth_required('token')
+@roles_required('admin')
+def cancel_booking(booking_id):
+    booking = db.session.get(Booking, booking_id)
+    if not booking:
+        return {'message': 'Booking not found.'}, 404
+    if booking.status != 'Booked':
+        return {'message': 'Only active bookings can be cancelled.'}, 400
+
+    booking.status = 'Cancelled'
+    booking.cancelled_at = datetime.utcnow()
+    booking.cancellation_reason = 'Booking cancelled by administrator.'
+    slot = booking.slot
+    slot.available_seats = min(
+        slot.maximum_student_capacity, slot.available_seats + 1
+    )
+    if slot.status == 'Full' and slot.available_seats > 0:
+        slot.status = 'Available'
+    db.session.commit()
+    return {'message': 'Booking cancelled successfully.'}, 200
+
+
+# ==========================================
+# ADMIN RUBRIC MANAGEMENT
+# ==========================================
+
+def serialize_rubric(rubric):
+    return {
+        'id': rubric.id,
+        'examination_id': rubric.examination_id,
+        'examination_name': rubric.examination.examination_name,
+        'course_code': rubric.examination.course.course_code,
+        'criterion_name': rubric.criterion_name,
+        'maximum_marks': rubric.maximum_marks,
+        'weightage': rubric.weightage,
+        'description': rubric.description
+    }
+
+
+def validate_rubric_payload(data):
+    try:
+        examination_id = int(data.get('examination_id'))
+        maximum_marks = float(data.get('maximum_marks'))
+        weightage = float(data.get('weightage')) if data.get('weightage') not in (None, '') else None
+    except (TypeError, ValueError):
+        return None, 'Select an examination and enter valid marks and weightage.'
+
+    criterion_name = str(data.get('criterion_name') or '').strip()
+    if not criterion_name:
+        return None, 'Criterion name is required.'
+    if maximum_marks <= 0:
+        return None, 'Maximum marks must be greater than zero.'
+    if weightage is not None and not 0 <= weightage <= 100:
+        return None, 'Weightage must be between 0 and 100.'
+    examination = db.session.get(Examination, examination_id)
+    if not examination:
+        return None, 'Examination not found.'
+    return {
+        'examination': examination,
+        'criterion_name': criterion_name,
+        'maximum_marks': maximum_marks,
+        'weightage': weightage,
+        'description': str(data.get('description') or '').strip() or None
+    }, None
+
+
+@admin_bp.route('/rubrics', methods=['GET'])
+@auth_required('token')
+@roles_required('admin')
+def get_rubrics():
+    rubrics = ExaminationRubric.query.join(Examination).order_by(
+        Examination.examination_name, ExaminationRubric.id
+    ).all()
+    return {'rubrics': [serialize_rubric(rubric) for rubric in rubrics]}, 200
+
+
+@admin_bp.route('/rubrics', methods=['POST'])
+@auth_required('token')
+@roles_required('admin')
+def create_rubric():
+    data = request.get_json(silent=True) or {}
+    values, error = validate_rubric_payload(data)
+    if error:
+        return {'message': error}, 400
+    rubric = ExaminationRubric(
+        examination_id=values['examination'].id,
+        criterion_name=values['criterion_name'],
+        maximum_marks=values['maximum_marks'],
+        weightage=values['weightage'],
+        description=values['description']
+    )
+    db.session.add(rubric)
+    db.session.commit()
+    return {'message': 'Rubric created successfully.', 'rubric': serialize_rubric(rubric)}, 201
+
+
+@admin_bp.route('/rubrics/<int:rubric_id>', methods=['PUT'])
+@auth_required('token')
+@roles_required('admin')
+def update_rubric(rubric_id):
+    rubric = db.session.get(ExaminationRubric, rubric_id)
+    if not rubric:
+        return {'message': 'Rubric not found.'}, 404
+    data = request.get_json(silent=True) or {}
+    values, error = validate_rubric_payload(data)
+    if error:
+        return {'message': error}, 400
+    rubric.examination_id = values['examination'].id
+    rubric.criterion_name = values['criterion_name']
+    rubric.maximum_marks = values['maximum_marks']
+    rubric.weightage = values['weightage']
+    rubric.description = values['description']
+    db.session.commit()
+    return {'message': 'Rubric updated successfully.', 'rubric': serialize_rubric(rubric)}, 200
+
+
+@admin_bp.route('/rubrics/<int:rubric_id>', methods=['DELETE'])
+@auth_required('token')
+@roles_required('admin')
+def delete_rubric(rubric_id):
+    rubric = db.session.get(ExaminationRubric, rubric_id)
+    if not rubric:
+        return {'message': 'Rubric not found.'}, 404
+    if RubricMark.query.filter_by(rubric_id=rubric.id).first():
+        return {'message': 'This rubric is already used in an evaluation and cannot be deleted.'}, 409
+    db.session.delete(rubric)
+    db.session.commit()
+    return {'message': 'Rubric deleted successfully.'}, 200
+
+
+# ==========================================
+# RESULTS AND REPORTS
+# ==========================================
+
+@admin_bp.route('/results', methods=['GET'])
+@auth_required('token')
+@roles_required('admin')
+def get_results():
+    bookings = Booking.query.filter(
+        Booking.status != 'Cancelled'
+    ).order_by(Booking.booking_date.desc()).all()
+
+    rows = []
+    for booking in bookings:
+        evaluation = booking.evaluation
+        criteria = []
+        if evaluation:
+            criteria = [{
+                'criterion_name': mark.rubric.criterion_name,
+                'maximum_marks': mark.rubric.maximum_marks,
+                'marks_obtained': mark.marks_obtained
+            } for mark in evaluation.rubric_marks]
+        rows.append({
+            'booking_id': booking.id,
+            'student_name': booking.student.fullname,
+            'registration_number': booking.student.registration_number,
+            'examination_id': booking.examination_id,
+            'examination_name': booking.examination.examination_name,
+            'course_code': booking.examination.course.course_code,
+            'maximum_marks': booking.examination.maximum_marks,
+            'date': booking.slot.date.isoformat(),
+            'booking_status': booking.status,
+            'evaluation_status': evaluation.status if evaluation else 'Pending',
+            'total_marks': evaluation.total_marks if evaluation else None,
+            'remarks': evaluation.remarks if evaluation else None,
+            'result_published': bool(
+                booking.examination.results_published
+                and evaluation
+                and evaluation.status in ['Submitted', 'Evaluated']
+            ),
+            'criteria': criteria
+        })
+    return {'results': rows}, 200
+
+
+@admin_bp.route('/results/publish', methods=['POST'])
+@auth_required('token')
+@roles_required('admin')
+def publish_results():
+    publishable_evaluations = Evaluation.query.join(
+        Booking, Evaluation.booking_id == Booking.id
+    ).filter(
+        Evaluation.status.in_(['Submitted', 'Evaluated'])
+    ).all()
+    examination_ids = {evaluation.booking.examination_id for evaluation in publishable_evaluations}
+    if not examination_ids:
+        return {'message': 'There are no submitted evaluations to publish.', 'published_count': 0}, 400
+
+    examinations = Examination.query.filter(
+        Examination.id.in_(examination_ids)
+    ).all()
+    now = datetime.utcnow()
+    for examination in examinations:
+        examination.results_published = True
+        examination.published_at = now
+    db.session.commit()
+    return {
+        'message': 'Results published successfully.',
+        'published_count': len(examinations)
+    }, 200
+
+
+@admin_bp.route('/reports', methods=['GET'])
+@auth_required('token')
+@roles_required('admin')
+def get_admin_reports():
+    examinations = Examination.query.all()
+    bookings = Booking.query.all()
+    slots = ExaminationSlot.query.all()
+    evaluations = Evaluation.query.filter(
+        Evaluation.status.in_(['Submitted', 'Evaluated'])
+    ).all()
+
+    def counts(items, key):
+        values = {}
+        for item in items:
+            label = key(item)
+            values[label] = values.get(label, 0) + 1
+        return [{'label': label, 'count': count} for label, count in sorted(values.items())]
+
+    evaluated_booking_ids = {evaluation.booking_id for evaluation in evaluations}
+    performance = []
+    for evaluation in evaluations:
+        booking = evaluation.booking
+        maximum = booking.examination.maximum_marks
+        performance.append({
+            'student_name': booking.student.fullname,
+            'percentage': round((evaluation.total_marks or 0) / maximum * 100, 1) if maximum else 0
+        })
+
+    examiner_activity = []
+    for examiner in Examiner.query.all():
+        examiner_slots = [slot for slot in slots if slot.examiner_id == examiner.id]
+        examiner_bookings = [booking for booking in bookings if booking.slot.examiner_id == examiner.id]
+        examiner_activity.append({
+            'examiner_name': examiner.fullname,
+            'slots': len(examiner_slots),
+            'bookings': len(examiner_bookings),
+            'evaluations': sum(booking.evaluation is not None for booking in examiner_bookings)
+        })
+    examiner_activity.sort(key=lambda item: item['bookings'], reverse=True)
+
+    monthly = {}
+    for slot in slots:
+        month = slot.date.strftime('%Y-%m')
+        row = monthly.setdefault(month, {'month': month, 'slots': 0, 'bookings': 0})
+        row['slots'] += 1
+        row['bookings'] += sum(booking.slot_id == slot.id for booking in bookings)
+
+    return {
+        'examinations_conducted': sum(examination.status == 'Completed' for examination in examinations),
+        'students_evaluated': len(evaluated_booking_ids),
+        'completed_bookings': sum(booking.status == 'Completed' for booking in bookings),
+        'pending_evaluations': sum(
+            booking.status == 'Booked' and booking.id not in evaluated_booking_ids
+            for booking in bookings
+        ),
+        'examinations_by_type': counts(examinations, lambda item: item.examination_type),
+        'bookings_by_status': counts(bookings, lambda item: item.status),
+        'student_performance': performance,
+        'examiner_activity': examiner_activity,
+        'monthly_summary': [monthly[key] for key in sorted(monthly)]
     }, 200
 
 
@@ -1425,10 +1962,13 @@ def cancel_slot(slot_id):
     if slot.status == 'Cancelled':
         return {'message': 'This slot is already cancelled.'}, 400
 
-    if has_active_bookings(slot):
-        return {
-            'message': 'This slot has bookings. Cancel or move the bookings first.'
-        }, 400
+    for booking in Booking.query.filter(
+        Booking.slot_id == slot.id,
+        Booking.status != 'Cancelled'
+    ).all():
+        booking.status = 'Cancelled'
+        booking.cancelled_at = datetime.utcnow()
+        booking.cancellation_reason = 'Slot cancelled by administrator.'
 
     slot.status = 'Cancelled'
 

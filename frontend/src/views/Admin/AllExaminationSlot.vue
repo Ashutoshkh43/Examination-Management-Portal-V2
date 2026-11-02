@@ -1,7 +1,10 @@
 <template>
   <div class="container-fluid p-3">
     <div class="small text-secondary mb-1">Home / admin / Slots</div>
-    <h3 class="mb-3">All Examination Slots</h3>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h3 class="mb-0">All Examination Slots</h3>
+      <button class="btn btn-primary btn-sm" @click="openCreate">+ Create Slot</button>
+    </div>
 
     <div v-if="message" class="alert alert-success py-2">{{ message }}</div>
     <div v-if="error" class="alert alert-danger py-2">{{ error }}</div>
@@ -15,6 +18,9 @@
           </div>
         </div>
       </div>
+    </div>
+    <div v-if="awaitingExaminations.length" class="alert alert-info py-2">
+      Examinations appear directly in this table when created. Rows marked <strong>Not Scheduled</strong> do not have a bookable date and time yet.
     </div>
 
     <div class="card mb-3">
@@ -49,14 +55,16 @@
               <tr v-if="loading">
                 <td colspan="8" class="text-center py-4">Loading slots...</td>
               </tr>
-              <tr v-else-if="filteredSlots.length === 0">
-                <td colspan="8" class="text-center py-4">No slots found.</td>
+              <tr v-else-if="slotTableRows.length === 0">
+                <td colspan="8" class="text-center py-4 text-secondary">
+                  No examination slots match these filters.
+                </td>
               </tr>
-              <tr v-for="slot in filteredSlots" :key="slot.id">
-                <td>{{ slot.examination_name }}</td>
+              <tr v-for="slot in slotTableRows" :key="slot.id">
+                <td>{{ slot.examination_name }} <small v-if="slot.isUnscheduled" class="d-block text-secondary">Examination #{{ slot.examination_id }} · {{ slot.examination_status }}</small></td>
                 <td>{{ slot.examiner_name || 'Not Assigned' }}</td>
                 <td>{{ slot.date }}</td>
-                <td>{{ slot.start_time }}–{{ slot.end_time }}</td>
+                <td>{{ slot.end_time ? `${slot.start_time}–${slot.end_time}` : '—' }}</td>
                 <td>{{ slot.capacity }}</td>
                 <td>{{ slot.available_seats }}</td>
                 <td>
@@ -65,7 +73,7 @@
                   </span>
                 </td>
                 <td>
-                  <div class="d-flex gap-1">
+                  <div v-if="!slot.isUnscheduled" class="d-flex gap-1">
                     <button class="btn btn-outline-primary btn-sm" @click="viewSlot(slot)">View</button>
                     <button class="btn btn-outline-secondary btn-sm" :disabled="busy || slot.status === 'Cancelled'" @click="openReschedule(slot)">
                       Reschedule
@@ -77,6 +85,7 @@
                       Cancel
                     </button>
                   </div>
+                  <span v-else class="text-secondary small">No timed slot yet</span>
                 </td>
               </tr>
             </tbody>
@@ -93,6 +102,25 @@
             <button class="btn-close" :disabled="busy" aria-label="Close" @click="closeModal" />
           </div>
           <div class="modal-body">
+            <form v-if="modalMode === 'create'" @submit.prevent="createSlot">
+              <div v-if="creationExaminations.length === 0" class="alert alert-info">No examination is currently in Slot Creation status.</div>
+              <label class="form-label">Examination *</label>
+              <select v-model="slotForm.examination_id" class="form-select mb-3" required @change="loadCreationExaminers">
+                <option value="" disabled>Select examination</option>
+                <option v-for="exam in creationExaminations" :key="exam.id" :value="String(exam.id)">{{ exam.examination_name }} ({{ exam.course_code }})</option>
+              </select>
+              <label class="form-label">Assigned Examiner *</label>
+              <select v-model="slotForm.examiner_id" class="form-select mb-3" required>
+                <option value="" disabled>Select examiner</option>
+                <option v-for="examiner in creationExaminers" :key="examiner.id" :value="String(examiner.id)">{{ examiner.fullname }}</option>
+              </select>
+              <label class="form-label">Date *</label><input v-model="slotForm.date" class="form-control mb-3" type="date" required>
+              <div class="row"><div class="col-sm-6"><label class="form-label">Start Time *</label><input v-model="slotForm.start_time" class="form-control mb-3" type="time" required></div><div class="col-sm-6"><label class="form-label">End Time *</label><input v-model="slotForm.end_time" class="form-control mb-3" type="time" required></div></div>
+              <label class="form-label">Capacity *</label><input v-model.number="slotForm.capacity" class="form-control mb-3" type="number" min="1" required>
+              <label class="form-label">Meeting Link</label><input v-model.trim="slotForm.meeting_link" class="form-control" type="url" maxlength="500">
+              <div v-if="modalError" class="alert alert-danger mt-3 mb-0">{{ modalError }}</div>
+              <div class="d-flex justify-content-end gap-2 mt-4"><button type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="closeModal">Cancel</button><button class="btn btn-primary btn-sm" :disabled="busy || creationExaminations.length === 0">{{ busy ? 'Creating...' : 'Create Slot' }}</button></div>
+            </form>
             <div v-if="modalMode === 'view'">
               <p><strong>Examination:</strong> {{ selectedSlot?.examination_name }}</p>
               <p><strong>Examiner:</strong> {{ selectedSlot?.examiner_name || 'Not Assigned' }}</p>
@@ -119,8 +147,8 @@
             <form v-else-if="modalMode === 'reassign'" @submit.prevent="saveReassignment">
               <label class="form-label">Examiner</label>
               <select v-model="slotForm.examiner_id" class="form-select">
-                <option value="">Not Assigned</option>
-                <option v-for="examiner in examiners" :key="examiner.id" :value="String(examiner.id)">
+                <option value="" disabled>Select an assigned examiner</option>
+                <option v-for="examiner in slotExaminers" :key="examiner.id" :value="String(examiner.id)">
                   {{ examiner.fullname }}
                 </option>
               </select>
@@ -131,7 +159,7 @@
               </div>
             </form>
 
-            <div v-else class="d-flex justify-content-end">
+            <div v-else-if="modalMode !== 'create'" class="d-flex justify-content-end">
               <button class="btn btn-secondary btn-sm" @click="closeModal">Close</button>
             </div>
           </div>
@@ -147,7 +175,9 @@ import { computed, onMounted, ref } from 'vue'
 import { apiRequest } from '../../services/api.js'
 
 const slots = ref([])
+const awaitingExaminations = ref([])
 const examiners = ref([])
+const slotExaminers = ref([])
 const search = ref('')
 const examinerFilter = ref('')
 const loading = ref(false)
@@ -158,9 +188,12 @@ const showModal = ref(false)
 const modalMode = ref('view')
 const modalError = ref('')
 const selectedSlot = ref(null)
-const slotForm = ref({ date: '', start_time: '', end_time: '', examiner_id: '' })
+const slotForm = ref({ examination_id: '', date: '', start_time: '', end_time: '', capacity: 1, meeting_link: '', examiner_id: '' })
+const creationExaminations = ref([])
+const creationExaminers = ref([])
 
 const modalTitle = computed(() => ({
+  create: 'Create Examination Slot',
   view: 'Slot Details',
   reschedule: 'Reschedule Slot',
   reassign: 'Reassign Examiner'
@@ -170,24 +203,123 @@ const summaryCards = computed(() => [
   { label: 'Total Slots', value: slots.value.length },
   { label: 'Available', value: slots.value.filter(slot => slot.status === 'Available').length },
   { label: 'Full', value: slots.value.filter(slot => slot.status === 'Full').length },
-  { label: 'Cancelled', value: slots.value.filter(slot => slot.status === 'Cancelled').length }
+  { label: 'Cancelled', value: slots.value.filter(slot => slot.status === 'Cancelled').length },
+  { label: 'Unscheduled Examinations', value: awaitingExaminations.value.length }
 ])
 
 const filteredSlots = computed(() => {
   const query = search.value.trim().toLowerCase()
   return slots.value.filter(slot => {
-    const text = `${slot.examination_name} ${slot.examiner_name} ${slot.date}`.toLowerCase()
+    const text = `${slot.id} ${slot.examination_name} ${slot.examiner_name} ${slot.date}`.toLowerCase()
     return text.includes(query)
       && (!examinerFilter.value || String(slot.examiner_id ?? '') === examinerFilter.value)
   })
 })
+const filteredAwaitingExaminations = computed(() => {
+  const query = search.value.trim().toLowerCase()
+  return awaitingExaminations.value.filter(exam => {
+    const matchesText = `${exam.id} ${exam.examination_name} ${exam.course_code} ${exam.examiner_name} ${exam.status}`.toLowerCase().includes(query)
+    return matchesText && (!examinerFilter.value || String(exam.examiner_id ?? '') === examinerFilter.value)
+  })
+})
+const slotTableRows = computed(() => [
+  ...filteredAwaitingExaminations.value.map(exam => ({
+    id: `exam-${exam.id}`,
+    examination_id: exam.id,
+    examination_name: exam.examination_name,
+    course_code: exam.course_code,
+    examiner_id: exam.examiner_id,
+    examiner_name: exam.examiner_name,
+    examination_status: exam.status,
+    date: '—',
+    start_time: '—',
+    end_time: '',
+    capacity: '—',
+    available_seats: '—',
+    status: 'Not Scheduled',
+    isUnscheduled: true
+  })),
+  ...filteredSlots.value.map(slot => ({ ...slot, isUnscheduled: false }))
+])
 
 function statusClass(status) {
   return {
     Available: 'text-bg-success',
     Full: 'text-bg-danger',
-    Cancelled: 'text-bg-secondary'
+    Cancelled: 'text-bg-secondary',
+    'Not Scheduled': 'text-bg-warning'
   }[status] || 'text-bg-secondary'
+}
+
+async function openCreate() {
+  slotForm.value = { examination_id: '', date: '', start_time: '', end_time: '', capacity: 1, meeting_link: '', examiner_id: '' }
+  creationExaminations.value = []
+  creationExaminers.value = []
+  modalMode.value = 'create'
+  modalError.value = ''
+  showModal.value = true
+  try {
+    const data = await apiRequest('/admin/examinations')
+    creationExaminations.value = (data.examinations || []).filter(exam => exam.status === 'Slot Creation')
+    if (creationExaminations.value.length) {
+      slotForm.value.examination_id = String(creationExaminations.value[0].id)
+      await loadCreationExaminers()
+    }
+  } catch (err) {
+    modalError.value = err.message || 'Could not load examinations.'
+  }
+}
+
+async function loadCreationExaminers() {
+  slotForm.value.examiner_id = ''
+  creationExaminers.value = []
+  if (!slotForm.value.examination_id) return
+  try {
+    const data = await apiRequest(`/admin/slot-examiners?examination_id=${slotForm.value.examination_id}`)
+    creationExaminers.value = data.examiners || []
+    if (creationExaminers.value.length === 1) {
+      slotForm.value.examiner_id = String(creationExaminers.value[0].id)
+    }
+  } catch (err) {
+    modalError.value = err.message || 'Could not load assigned examiners.'
+  }
+}
+
+async function createSlot() {
+  if (!slotForm.value.examination_id || !slotForm.value.examiner_id || !slotForm.value.date || !slotForm.value.start_time || !slotForm.value.end_time || Number(slotForm.value.capacity) < 1) {
+    modalError.value = 'Complete all required fields.'
+    return
+  }
+  if (slotForm.value.end_time <= slotForm.value.start_time) {
+    modalError.value = 'End time must be later than start time.'
+    return
+  }
+
+  busy.value = true
+  modalError.value = ''
+  try {
+    const result = await apiRequest('/admin/slots', {
+      method: 'POST',
+      body: JSON.stringify({
+        examination_id: Number(slotForm.value.examination_id),
+        examiner_id: Number(slotForm.value.examiner_id),
+        date: slotForm.value.date,
+        start_time: slotForm.value.start_time,
+        end_time: slotForm.value.end_time,
+        capacity: Number(slotForm.value.capacity),
+        meeting_link: slotForm.value.meeting_link
+      })
+    })
+    showModal.value = false
+    message.value = result.message || 'Examination slot created.'
+    examinerFilter.value = ''
+    search.value = ''
+    await loadData()
+  } catch (err) {
+    modalError.value = err.message || 'Could not create slot.'
+  } finally {
+    busy.value = false
+  }
 }
 
 async function loadData() {
@@ -207,6 +339,7 @@ async function loadData() {
       booked_count: slot.booked_count ?? Math.max(0, (slot.capacity ?? slot.maximum_student_capacity ?? 0) - (slot.available_seats ?? 0)),
       status: slot.status || 'Available'
     }))
+    awaitingExaminations.value = slotData.awaiting_examinations || []
     examiners.value = examinerData.examiners || []
   } catch (err) {
     error.value = err.message || 'Could not load slots.'
@@ -235,7 +368,7 @@ function openReschedule(slot) {
   showModal.value = true
 }
 
-function openReassign(slot) {
+async function openReassign(slot) {
   selectedSlot.value = slot
   slotForm.value = {
     date: '',
@@ -246,6 +379,13 @@ function openReassign(slot) {
   modalMode.value = 'reassign'
   modalError.value = ''
   showModal.value = true
+  slotExaminers.value = []
+  try {
+    const data = await apiRequest(`/admin/slot-examiners?examination_id=${slot.examination_id}`)
+    slotExaminers.value = data.examiners || []
+  } catch (err) {
+    modalError.value = err.message || 'Could not load assigned examiners.'
+  }
 }
 
 function closeModal() {
@@ -261,8 +401,8 @@ async function saveReschedule() {
   busy.value = true
   modalError.value = ''
   try {
-    const result = await apiRequest(`/admin/slots/${selectedSlot.value.id}`, {
-      method: 'PUT',
+    const result = await apiRequest(`/admin/slots/${selectedSlot.value.id}/reschedule`, {
+      method: 'PATCH',
       body: JSON.stringify({
         date: slotForm.value.date,
         start_time: slotForm.value.start_time,
@@ -284,7 +424,7 @@ async function saveReassignment() {
   modalError.value = ''
   try {
     const examinerId = slotForm.value.examiner_id
-    const result = await apiRequest(`/admin/slots/${selectedSlot.value.id}/examiner`, {
+    const result = await apiRequest(`/admin/slots/${selectedSlot.value.id}/reassign`, {
       method: 'PATCH',
       body: JSON.stringify({ examiner_id: examinerId ? Number(examinerId) : null })
     })
