@@ -26,9 +26,6 @@
             <RouterLink class="nav-link text-white" to="/admin/slots">
                 Slots
             </RouterLink>
-<!-- 
-            
-
             <RouterLink class="nav-link text-white" to="/admin/rubrics">
                 Rubrics
             </RouterLink>
@@ -41,15 +38,16 @@
                 Bookings
             </RouterLink>
 
-            
-
             <RouterLink class="nav-link text-white" to="/admin/results">
                 Results
             </RouterLink>
 
             <RouterLink class="nav-link text-white" to="/admin/reports">
                 Reports
-            </RouterLink> -->
+            </RouterLink>
+
+            
+
         </nav>
 
         <!-- Examiner menu -->
@@ -57,7 +55,9 @@
             <RouterLink class="nav-link text-white" to="/examiner/dashboard">
                 Dashboard
             </RouterLink>
-
+            <RouterLink class="nav-link text-white" to="/examiner/profile">
+                Profile
+            </RouterLink>
             <RouterLink class="nav-link text-white" to="/examiner/examinations">
                 My Examinations
             </RouterLink>
@@ -70,9 +70,7 @@
                 Booked Students
             </RouterLink>
 
-            <RouterLink class="nav-link text-white" to="/examiner/profile">
-                Profile
-            </RouterLink>
+            
         </nav>
 
         <!-- Student menu -->

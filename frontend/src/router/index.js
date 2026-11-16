@@ -47,6 +47,26 @@ const routes = [
       {
         path:'slots',
         component:()=>import('../views/Admin/AllExaminationSlot.vue')
+      },
+      {
+        path: 'bookings',
+        component: () => import('../views/Admin/ManageBookings.vue'),
+        meta: { title: 'Booking Management' }
+      },
+      {
+        path: 'rubrics',
+        component: () => import('../views/Admin/ManageRubrics.vue'),
+        meta: { title: 'Evaluation Rubrics' }
+      },
+      {
+        path: 'results',
+        component: () => import('../views/Admin/ManageResults.vue'),
+        meta: { title: 'Publish Results' }
+      },
+      {
+        path: 'reports',
+        component: () => import('../views/Admin/AdminReports.vue'),
+        meta: { title: 'Reports & Statistics' }
       }
       
     ]
@@ -61,9 +81,28 @@ const routes = [
     children: [
       {
         path: 'dashboard',
-        component: () => import('../views/ExaminerDashboard.vue'),
+        component: () => import('../views/Examiner/Dashboard.vue'),
         meta: { title: 'Examiner Dashboard' }
       },
+      {
+        path: 'slots',
+        component: () => import('../views/Examiner/ManageSlots.vue'),
+        meta: { title: 'Manage Examination Slots' }
+      },
+      {
+        path:'examinations',
+        component: ()=> import('../views/Examiner/MyExamination.vue')
+      },
+      {
+        path:'booked-students',
+        component: ()=> import('../views/Examiner/BookedStudents.vue')
+      },
+      {
+        
+        path:'profile',
+        component: ()=> import('../views/Examiner/Profile.vue')
+      
+      }
       
     ]
   },
@@ -77,7 +116,7 @@ const routes = [
     children: [
       {
         path: 'dashboard',
-        component: () => import('../views/StudentDashboard.vue'),
+        component: () => import('../views/Student/StudentDashboard.vue'),
         meta: { title: 'Student Dashboard' }
       },
       

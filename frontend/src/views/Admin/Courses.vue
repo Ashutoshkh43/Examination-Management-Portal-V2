@@ -307,6 +307,7 @@ const filteredCourses = computed(() => {
 
     return courses.value.filter((course) => {
         return [
+            course.id,
             course.course_code,
             course.course_name,
             course.description,

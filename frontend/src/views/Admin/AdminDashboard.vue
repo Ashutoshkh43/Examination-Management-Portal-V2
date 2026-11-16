@@ -9,6 +9,11 @@
             </div>
 
             <h6 class="fw-bold mb-0">Dashboard</h6>
+            <div class="d-flex flex-wrap gap-2 mt-3">
+                <RouterLink class="btn btn-outline-primary btn-sm" to="/admin/slots">Manage slots</RouterLink>
+                <RouterLink class="btn btn-outline-primary btn-sm" to="/admin/bookings">Manage bookings</RouterLink>
+                <RouterLink class="btn btn-outline-primary btn-sm" to="/admin/rubrics">Manage rubrics</RouterLink>
+            </div>
         </div>
 
         <!-- Summary Cards -->
@@ -75,6 +80,17 @@
                         <div class="small">Total Bookings</div>
                         <h3 class="fw-bold mb-0">
                             {{ dashboard.total_bookings ?? 0 }}
+                        </h3>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12 col-sm-6 col-lg-4 col-xl-2">
+                <div class="card h-100">
+                    <div class="card-body py-3">
+                        <div class="small">Rubric Criteria</div>
+                        <h3 class="fw-bold mb-0">
+                            {{ dashboard.total_rubrics ?? 0 }}
                         </h3>
                     </div>
                 </div>
@@ -218,6 +234,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { RouterLink } from 'vue-router'
 import { apiRequest } from '../../services/api'
 
 const dashboard = ref({})

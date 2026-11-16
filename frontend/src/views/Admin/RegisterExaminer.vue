@@ -30,6 +30,12 @@
             {{ error }}
         </div>
 
+        <div class="card mb-3">
+            <div class="card-body">
+                <input v-model="search" class="form-control" type="search" placeholder="Search name, employee ID, or email">
+            </div>
+        </div>
+
         <!-- Examiner Table -->
         <div class="card">
             <div class="card-body p-3">
@@ -50,7 +56,7 @@
 
                         <tbody>
                             <tr
-                                v-for="examiner in examiners"
+                                v-for="examiner in filteredExaminers"
                                 :key="examiner.id"
                             >
                                 <td class="text-nowrap">
@@ -72,12 +78,10 @@
                                         class="badge rounded-pill"
                                         :class="examiner.status === 'active'
                                             ? 'text-bg-success'
-                                            : 'text-bg-secondary'"
+                                            : examiner.status === 'pending' ? 'text-bg-warning' : 'text-bg-secondary'"
                                     >
                                         {{
-                                            examiner.status === 'active'
-                                                ? 'Active'
-                                                : 'Inactive'
+                                            examiner.status === 'active' ? 'Active' : examiner.status === 'pending' ? 'Pending approval' : 'Inactive'
                                         }}
                                     </span>
                                 </td>
@@ -109,9 +113,7 @@
                                             @click="changeStatus(examiner)"
                                         >
                                             {{
-                                                examiner.status === 'active'
-                                                    ? 'Deactivate'
-                                                    : 'Activate'
+                                                examiner.status === 'active' ? 'Deactivate' : examiner.status === 'pending' ? 'Approve' : 'Activate'
                                             }}
                                         </button>
                                     </div>
@@ -127,7 +129,7 @@
                                 </td>
                             </tr>
 
-                            <tr v-if="!loading && examiners.length === 0">
+                            <tr v-if="!loading && filteredExaminers.length === 0">
                                 <td
                                     colspan="7"
                                     class="text-center text-secondary py-4"
@@ -462,6 +464,14 @@ import { ref, computed, onMounted } from 'vue'
 import { apiRequest } from '../../services/api'
 
 const examiners = ref([])
+const search = ref('')
+const filteredExaminers = computed(() => {
+    const query = search.value.trim().toLowerCase()
+    return examiners.value.filter((examiner) =>
+        `${examiner.id} ${examiner.fullname} ${examiner.employee_id} ${examiner.email} ${examiner.status}`
+            .toLowerCase().includes(query)
+    )
+})
 
 const loading = ref(false)
 const busy = ref(false)
@@ -643,7 +653,7 @@ function saveExaminer() {
 function changeStatus(examiner) {
     const action = examiner.status === 'active'
         ? 'deactivate'
-        : 'activate'
+        : examiner.status === 'pending' ? 'approve' : 'activate'
 
     const confirmed = window.confirm(
         `Are you sure you want to ${action} ${examiner.fullname}?`

@@ -34,7 +34,6 @@ def get_datastore():
 @auth_required('token')
 @roles_required('admin')
 def admin_dashboard():
-
     examinations = Examination.query.order_by(Examination.created_at.desc()).all()
     bookings = Booking.query.order_by(Booking.booking_date.desc()).all()
     activities = [
@@ -59,21 +58,13 @@ def admin_dashboard():
 
     return {
         'role': 'admin',
-
         'total_courses': Course.query.count(),
-
         'total_examinations': Examination.query.count(),
-
         'total_students': Student.query.count(),
-
         'total_examiners': Examiner.query.count(),
-
         'total_slots': ExaminationSlot.query.count(),
-
         'total_bookings': Booking.query.count(),
-
         'total_rubrics': ExaminationRubric.query.count(),
-
         'recent_activities': activities[:10],
 
         'examination_statuses': [
@@ -144,27 +135,17 @@ def get_examiners():
 @auth_required('token')
 @roles_required('admin')
 def create_examiner():
-
     data = request.get_json(silent=True) or {}
-
     fullname = str(data.get('fullname') or '').strip()
-
     email = str(data.get('email') or '').strip().lower()
-
     password = data.get('password', '')
-
-    employee_id = str(
-        data.get('employee_id') or ''
-    ).strip()
-
+    employee_id = str(data.get('employee_id') or '').strip()
     contact = str(
         data.get('contact') or ''
     ).strip()
-
     department = str(
         data.get('department') or ''
     ).strip()
-
     designation = str(
         data.get('designation') or ''
     ).strip()
@@ -207,15 +188,11 @@ def create_examiner():
     if not examiner_role:
         return {
             'message': 'Examiner role is not configured.'
-        }, 500
-
-    # Hash the password before saving it.
-    hashed_password = utils.hash_password(password)
-
+        }, 500    
     user = datastore.create_user(
         email=email,
         password=hashed_password,
-        status='pending',
+        status='active',
         roles=[examiner_role]
     )
 
@@ -236,7 +213,6 @@ def create_examiner():
 
     return {
         'message': 'Examiner account created and is pending approval.',
-
         'examiner': {
             'id': examiner.id,
             'fullname': examiner.fullname,
@@ -259,9 +235,7 @@ def create_examiner():
 @auth_required('token')
 @roles_required('admin')
 def update_examiner(examiner_id):
-
     data = request.get_json(silent=True) or {}
-
     examiner = db.session.get(
         Examiner,
         examiner_id

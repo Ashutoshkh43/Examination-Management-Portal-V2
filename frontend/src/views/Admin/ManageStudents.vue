@@ -456,6 +456,7 @@ const filteredStudents = computed(() => {
 
     return students.value.filter((student) => {
         return [
+            student.id,
             student.fullname,
             student.registration_number,
             student.email,

@@ -126,6 +126,16 @@
                 </div>
 
                 <div class="col-md-6">
+                  <label class="form-label">Assigned Examiner *</label>
+                  <select v-model="form.examiner_id" class="form-select" required :disabled="isView">
+                    <option value="" disabled>Select active examiner</option>
+                    <option v-for="examiner in examiners" :key="examiner.id" :value="String(examiner.id)">
+                      {{ examiner.fullname }} ({{ examiner.employee_id }})
+                    </option>
+                  </select>
+                </div>
+
+                <div class="col-md-6">
                   <label class="form-label">Examination Type *</label>
                   <select v-model="form.examination_type" class="form-select" required :disabled="isView">
                     <option value="" disabled>Select type</option>
@@ -196,6 +206,7 @@ const examinationTypes = ['Viva', 'Practical', 'Project Demo', 'Assessment']
 
 const examinations = ref([])
 const courses = ref([])
+const examiners = ref([])
 const search = ref('')
 const courseFilter = ref('')
 const statusFilter = ref('')
@@ -211,6 +222,7 @@ const editingId = ref(null)
 const emptyForm = () => ({
   examination_name: '',
   course_id: '',
+  examiner_id: '',
   examination_type: '',
   duration: 30,
   maximum_marks: 30,
@@ -240,6 +252,7 @@ const filteredExaminations = computed(() => {
   const query = search.value.trim().toLowerCase()
   return examinations.value.filter(exam => {
     const searchable = [
+      exam.id,
       exam.examination_name,
       exam.course_code,
       exam.course_name,
@@ -271,12 +284,14 @@ async function loadData() {
   loading.value = true
   error.value = ''
   try {
-    const [examData, courseData] = await Promise.all([
+    const [examData, courseData, examinerData] = await Promise.all([
       apiRequest('/admin/examinations'),
-      apiRequest('/admin/courses')
+      apiRequest('/admin/courses'),
+      apiRequest('/admin/examiners')
     ])
     examinations.value = examData.examinations || []
     courses.value = (courseData.courses || []).filter(course => course.status === 'active')
+    examiners.value = (examinerData.examiners || []).filter(examiner => examiner.status === 'active')
   } catch (err) {
     error.value = err.message || 'Could not load examinations.'
   } finally {
@@ -298,6 +313,7 @@ function openEdit(exam) {
   form.value = {
     examination_name: exam.examination_name || '',
     course_id: String(exam.course_id ?? ''),
+    examiner_id: String(exam.examiner_id ?? ''),
     examination_type: exam.examination_type || '',
     duration: exam.duration ?? 30,
     maximum_marks: exam.maximum_marks ?? 30,
@@ -324,8 +340,8 @@ function closeModal() {
 
 function validateForm() {
   const value = form.value
-  if (!value.course_id || !value.examination_name || !value.examination_type) {
-    return 'Please fill in all required fields.'
+  if (!value.course_id || !value.examiner_id || !value.examination_name || !value.examination_type) {
+    return 'Please fill in all required fields, including the assigned examiner.'
   }
   if (!value.slot_creation_start || !value.slot_creation_end ||
       !value.slot_booking_start || !value.slot_booking_end) {
@@ -347,7 +363,8 @@ async function saveExam() {
     const editing = mode.value === 'edit'
     const payload = {
       ...form.value,
-      course_id: Number(form.value.course_id)
+      course_id: Number(form.value.course_id),
+      examiner_id: Number(form.value.examiner_id)
     }
     const result = await apiRequest(
       editing ? `/admin/examinations/${editingId.value}` : '/admin/examinations',
